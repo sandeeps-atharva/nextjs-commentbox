@@ -6,7 +6,7 @@ export default function Button({
   className = "",
 }) {
   const base =
-    "px-3 py-2 rounded-lg text-[12px] font-medium transition-colors flex items-center gap-1";
+    "px-3 py-2 rounded-lg text-[12px] font-medium transition-colors flex justify-center items-center gap-1";
 
   const variants = {
     default:

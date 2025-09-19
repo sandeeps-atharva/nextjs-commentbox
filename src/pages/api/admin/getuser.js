@@ -3,10 +3,13 @@ import { pool } from "@/lib/connect";
 export default async function handler(req, res) {
   if (req.method === "GET") {
     try {
-      const { page = 1, limit = 10, search = "", roleFilter = "" } = req.query;
+      const { page = 1, limit = 10, search = "", roleFilter = [] } = req.query;
       const offset = (page - 1) * limit;
+
       let whereConditions = [];
       let queryParams = [];
+
+      // 🔍 Search filter
       if (search && search.trim()) {
         const searchTerm = `%${search.trim()}%`;
         whereConditions.push(`(
@@ -24,15 +27,29 @@ export default async function handler(req, res) {
           searchTerm
         );
       }
-      if (roleFilter && roleFilter.trim()) {
-        whereConditions.push(`r.id = ?`);
-        queryParams.push(roleFilter);
+
+      // 🎭 Role filter (multiple allowed)
+      let rolesArray = [];
+      if (Array.isArray(roleFilter)) {
+        rolesArray = roleFilter.map((r) => Number(r)).filter((r) => !isNaN(r));
+      } else if (roleFilter) {
+        // single role (string) → convert to array
+        rolesArray = [Number(roleFilter)];
       }
+
+      if (rolesArray.length > 0) {
+        whereConditions.push(
+          `r.id IN (${rolesArray.map(() => "?").join(",")})`
+        );
+        queryParams.push(...rolesArray);
+      }
+
       const whereClause =
         whereConditions.length > 0
           ? `WHERE ${whereConditions.join(" AND ")}`
           : "";
 
+      // 🧮 Count query
       const countQuery = `
         SELECT COUNT(DISTINCT u.id) AS total 
         FROM users u
@@ -40,7 +57,9 @@ export default async function handler(req, res) {
         ${whereClause}
       `;
       const [countResult] = await pool.query(countQuery, queryParams);
-      const total = countResult[0].total;
+      const total = countResult[0]?.total || 0;
+
+      // 👤 Users query
       const usersQuery = `
         SELECT
           u.id AS id,

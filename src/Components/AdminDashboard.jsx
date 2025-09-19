@@ -25,7 +25,7 @@ function AdminDashboard() {
 
   return (
     <div className="flex h-screen">
-      <aside className="hidden md:flex w-64 flex-col bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white transition-colors">
+      <aside className="hidden md:flex w-80 flex-col bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white transition-colors">
         <div className="px-6 py-[19px] text-2xl font-bold border-b border-gray-300 dark:border-gray-700">
           CommentBox
         </div>
@@ -46,43 +46,48 @@ function AdminDashboard() {
         </nav>
       </aside>
 
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
-          <div
-            className="fixed inset-0 bg-black bg-opacity-40"
+      <div
+        className={`fixed inset-0 z-40 bg-black bg-opacity-40 md:hidden transition-opacity duration-300 ${
+          sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-full bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white shadow-xl flex flex-col transform transition-transform duration-300 md:hidden ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="px-6 py-4 flex items-center justify-between border-b border-gray-300 dark:border-gray-700">
+          <span className="text-xl font-bold">CommentBox</span>
+          <button
             onClick={() => setSidebarOpen(false)}
-          />
-          <aside className="relative z-50 w-64 bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white shadow-xl flex flex-col">
-            <div className="px-6 py-4 flex items-center justify-between border-b border-gray-300 dark:border-gray-700">
-              <span className="text-xl font-bold">CommentBox</span>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <nav className="flex-1 p-4 space-y-2">
-              {navItems.map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => {
-                    setActiveTab(item.key);
-                    setSidebarOpen(false);
-                  }}
-                  className={`w-full text-left px-4 py-2 rounded-lg transition ${
-                    activeTab === item.key
-                      ? "bg-gray-300 dark:bg-gray-700"
-                      : "hover:bg-gray-200 dark:hover:bg-gray-600"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
-          </aside>
+            className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+          >
+            <X className="w-6 h-6" />
+          </button>
         </div>
-      )}
+        <nav className="flex-1 p-4 space-y-2">
+          {navItems.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => {
+                setActiveTab(item.key);
+                setSidebarOpen(false);
+              }}
+              className={`w-full text-left px-4 py-2 rounded-lg transition ${
+                activeTab === item.key
+                  ? "bg-gray-300 dark:bg-gray-700"
+                  : "hover:bg-gray-200 dark:hover:bg-gray-600"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
       <main className="flex-1 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors overflow-y-auto">
         <Header onMenuClick={() => setSidebarOpen(true)} />
         {activeTab === "users" && <UserTable />}

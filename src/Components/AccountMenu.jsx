@@ -10,16 +10,21 @@ import {
   Tooltip,
 } from "@mui/material";
 import { LogOut } from "lucide-react";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function AccountMenu() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
   const [anchorEl, setAnchorEl] = useState(null);
+
   const open = Boolean(anchorEl);
   const handleClick = (event) => setAnchorEl(event.currentTarget);
   const handleClose = () => setAnchorEl(null);
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <>

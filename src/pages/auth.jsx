@@ -1,10 +1,10 @@
 import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeClosed, EyeClosedIcon, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 
-export default function Auth() {
+const Auth = () => {
   const { login } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
 
@@ -532,4 +532,6 @@ export default function Auth() {
       </div>
     </div>
   );
-}
+};
+
+export default Auth;

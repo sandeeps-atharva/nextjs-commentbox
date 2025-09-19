@@ -69,7 +69,7 @@ function RolePermissionManager() {
   }, [token]);
 
   useEffect(() => {
-    if (user.permissions.includes("manage_permissions") && token) {
+    if (user?.permissions.includes("manage_permissions") && token) {
       Promise.all([fetchRoles(), fetchPermissions()]).finally(() =>
         setLoading(false)
       );
@@ -229,7 +229,7 @@ function RolePermissionManager() {
   }
 
   return (
-    <div className="pt-16 sm:pt-20 lg:pt-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div className=" w-full">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100">
           Role & Permission Manager

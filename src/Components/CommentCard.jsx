@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useEffect, useRef, useState, memo, useMemo } from "react";
 import { formatTime } from "@/utils/formatTime";
 import {
@@ -36,8 +35,10 @@ const CommentCard = memo(
     const [editText, setEditText] = useState("");
     const [isReplying, setIsReplying] = useState(false);
     const [replyText, setReplyText] = useState("");
+    const [localSubmitting, setLocalSubmitting] = useState(false);
 
     const menuRef = useRef(null);
+    console.log("replyText", replyText);
 
     const permissions = useMemo(
       () => ({
@@ -64,10 +65,12 @@ const CommentCard = memo(
       const handleEscKey = (e) => {
         if (e.key === "Escape") {
           setMenuOpen(false);
+          setIsEditing(false);
+          setIsReplying(false);
         }
       };
 
-      if (menuOpen) {
+      if (menuOpen || isEditing || isReplying) {
         document.addEventListener("mousedown", handleClickOutside);
         document.addEventListener("keydown", handleEscKey);
       }
@@ -76,7 +79,7 @@ const CommentCard = memo(
         document.removeEventListener("mousedown", handleClickOutside);
         document.removeEventListener("keydown", handleEscKey);
       };
-    }, [menuOpen]);
+    }, [menuOpen, isEditing, isReplying]);
 
     // Text truncation logic
     const textContent = React.useMemo(() => {
@@ -102,12 +105,15 @@ const CommentCard = memo(
     const handleSaveEdit = async () => {
       if (!editText.trim()) return;
 
+      setLocalSubmitting(true);
       try {
         await onUpdateComment(comment.id, editText);
         setIsEditing(false);
         setEditText("");
       } catch (error) {
         console.error("Failed to save edit:", error);
+      } finally {
+        setLocalSubmitting(false);
       }
     };
 
@@ -126,12 +132,15 @@ const CommentCard = memo(
     const handleSubmitReply = async () => {
       if (!replyText.trim()) return;
 
+      setLocalSubmitting(true);
       try {
         await onAddReply(comment.id, replyText);
         setIsReplying(false);
         setReplyText("");
       } catch (error) {
         console.error("Failed to submit reply:", error);
+      } finally {
+        setLocalSubmitting(false);
       }
     };
 
@@ -140,11 +149,17 @@ const CommentCard = memo(
       setReplyText("");
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
       if (window.confirm("Are you sure you want to delete this comment?")) {
-        onDeleteComment(comment.id);
+        try {
+          await onDeleteComment(comment.id);
+        } catch (error) {
+          console.error("Failed to delete comment:", error);
+        }
       }
     };
+
+    const currentlySubmitting = isSubmitting || localSubmitting;
 
     // Edit mode
     if (isEditing && canEdit) {
@@ -154,15 +169,16 @@ const CommentCard = memo(
           <div className="flex gap-2">
             <Button
               onClick={handleSaveEdit}
-              disabled={isSubmitting || !editText.trim()}
+              disabled={currentlySubmitting || !editText.trim()}
               className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1"
+              isLoading={currentlySubmitting}
             >
               <Save size={15} />
-              {isSubmitting ? "Saving..." : "Save"}
+              {currentlySubmitting ? "Saving..." : "Save"}
             </Button>
             <Button
               onClick={handleCancelEdit}
-              disabled={isSubmitting}
+              disabled={currentlySubmitting}
               className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               Cancel
@@ -173,18 +189,23 @@ const CommentCard = memo(
     }
 
     return (
-      <div className="mb-3">
-        <div className="flex  gap-3 p-4 rounded-lg">
+      <div className="mb-1">
+        <div className="flex gap-3 p-1 rounded-lg">
           <Avatar avatar={comment.avatar} />
           <div className="flex-1">
             <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              {comment.firstname}
+              {comment.firstname} {comment.lastname}
             </p>
 
             <div className="my-2">
               {textContent.shouldTruncate && !isTextExpanded ? (
                 <>
-                  {textContent.preview}...
+                  <div
+                    className="comment-content"
+                    dangerouslySetInnerHTML={{
+                      __html: textContent.preview + "...",
+                    }}
+                  />
                   <button
                     onClick={() => setIsTextExpanded(true)}
                     className="ml-2 text-indigo-600 text-xs hover:underline"
@@ -194,7 +215,10 @@ const CommentCard = memo(
                 </>
               ) : (
                 <>
-                  <div dangerouslySetInnerHTML={{ __html: comment.text }} />
+                  <div
+                    className="comment-content"
+                    dangerouslySetInnerHTML={{ __html: comment.text }}
+                  />
                   {textContent.shouldTruncate && (
                     <button
                       onClick={() => setIsTextExpanded(false)}
@@ -211,7 +235,12 @@ const CommentCard = memo(
               <span>{formatTime(comment)}</span>
 
               {canReply && (
-                <Button onClick={handleStartReply} variant="default">
+                <Button
+                  onClick={handleStartReply}
+                  variant="default"
+                  disabled={currentlySubmitting}
+                  className="text-xs"
+                >
                   <ReplyIcon size={14} />
                   <span>Reply</span>
                 </Button>
@@ -221,17 +250,24 @@ const CommentCard = memo(
                 <Button
                   onClick={() => onToggleReplies(comment.id)}
                   variant="ghost"
-                  className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700"
+                  className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-xs"
+                  disabled={currentlySubmitting}
                 >
                   {isRepliesExpanded ? (
                     <>
                       <ChevronUp size={16} />
-                      <span>{replyCount} Hide replies</span>
+                      <span>
+                        Hide {replyCount}{" "}
+                        {replyCount === 1 ? "reply" : "replies"}
+                      </span>
                     </>
                   ) : (
                     <>
                       <ChevronDown size={16} />
-                      <span>{replyCount} View replies</span>
+                      <span>
+                        View {replyCount}{" "}
+                        {replyCount === 1 ? "reply" : "replies"}
+                      </span>
                     </>
                   )}
                 </Button>
@@ -246,6 +282,7 @@ const CommentCard = memo(
                 aria-expanded={menuOpen}
                 aria-haspopup="true"
                 className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
+                disabled={currentlySubmitting}
               >
                 <MoreVertical className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </button>

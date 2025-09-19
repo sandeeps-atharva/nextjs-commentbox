@@ -10,10 +10,6 @@ import {
   Paper,
   CircularProgress,
   Typography,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   TextField,
   Select,
   MenuItem,
@@ -21,13 +17,18 @@ import {
   Box,
   FormControl,
   InputLabel,
+  Card,
+  CardContent,
 } from "@mui/material";
-import Button from "./Button";
+
 import { useAuth } from "@/context/AuthContext";
-import { X } from "lucide-react";
+import { X, Check, Edit, Plus } from "lucide-react";
 import hasPermission from "@/utils/hasPermission";
-import Pagination from "./Pagination";
+
 import useDebounce from "@/utils/useDebounce";
+import RoleMultiSelect from "@/Components/RoleMultiSelect";
+import Button from "@/Components/Button";
+import Pagination from "@/Components/Pagination";
 
 const UserTable = () => {
   const { user, token } = useAuth();
@@ -37,11 +38,12 @@ const UserTable = () => {
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [searchInput, setSearchInput] = useState("");
-  const [roleFilter, setRoleFilter] = useState("");
+  const [roleFilters, setRoleFilters] = useState([]);
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const limit = 5;
+  const [limit, setLimit] = useState(5); // Make limit dynamic
+  const [total, setTotal] = useState(0); // Add total count
 
   const debouncedSearchInput = useDebounce(searchInput, 300);
 
@@ -53,9 +55,16 @@ const UserTable = () => {
   const canManageRole = hasPermission(user, "manage_roles");
   const canManageUser = hasPermission(user, "manage_users");
 
-  const [open, setOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
-  const [formData, setFormData] = useState({
+  console.log("canManageUser", canManageUser);
+  console.log("canManageRole", canManageRole);
+
+  // Inline editing states
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+
+  // Add user form states
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addFormData, setAddFormData] = useState({
     firstname: "",
     lastname: "",
     email: "",
@@ -64,15 +73,22 @@ const UserTable = () => {
   });
 
   const fetchUsers = useCallback(async () => {
+    let timer;
+
     try {
-      setLoading(true);
       setError(null);
+
+      // only show loader if it takes longer than 300ms
+      timer = setTimeout(() => setLoading(true), 300);
 
       const params = new URLSearchParams({
         page: page.toString(),
         limit: limit.toString(),
-        search: search,
-        roleFilter: roleFilter,
+        search,
+      });
+
+      roleFilters.forEach((roleId) => {
+        params.append("roleFilter", roleId);
       });
 
       const res = await fetch(`/api/admin/getuser?${params}`, {
@@ -84,15 +100,18 @@ const UserTable = () => {
       if (!res.ok) throw new Error("Failed to fetch users");
 
       const data = await res.json();
+
       setUsers(data.users || []);
       setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
     } catch (err) {
       setError(err.message);
       setUsers([]);
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
-  }, [token, page, limit, search, roleFilter]);
+  }, [token, page, limit, search, roleFilters]);
 
   const fetchRoles = useCallback(async () => {
     try {
@@ -114,7 +133,13 @@ const UserTable = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [search, roleFilter]);
+  }, [search, roleFilters, limit]); // Reset page when limit changes
+
+  // Handle items per page change
+  const handleLimitChange = (newLimit) => {
+    setLimit(newLimit);
+    setPage(1); // Reset to first page
+  };
 
   const handleDelete = useCallback(
     async (id) => {
@@ -138,51 +163,41 @@ const UserTable = () => {
     [fetchUsers, token]
   );
 
-  const handleEdit = (user) => {
-    setEditingUser(user);
-    setFormData({
+  // Start inline editing
+  const handleStartEdit = (user) => {
+    setEditingUserId(user.id);
+    setEditFormData({
       firstname: user.firstname,
       lastname: user.lastname,
       email: user.email,
       role_id: user.role_id || user.role_id,
     });
-    setOpen(true);
   };
 
-  const handleAdd = () => {
-    setEditingUser(null);
-    setFormData({
-      firstname: "",
-      lastname: "",
-      email: "",
-      role_id: null,
-    });
-    setOpen(true);
+  // Cancel inline editing
+  const handleCancelEdit = () => {
+    setEditingUserId(null);
+    setEditFormData({});
   };
 
-  // Submit form
-  const handleSubmit = async () => {
+  // Save inline edit
+  const handleSaveEdit = async (userId) => {
     try {
-      setActionLoading("form");
-      const url = editingUser
-        ? `/api/admin/${editingUser.id}`
-        : "/api/admin/addUser";
-
-      const method = editingUser ? "PUT" : "POST";
-
-      const response = await fetch(url, {
-        method: method,
+      setActionLoading(`edit-${userId}`);
+      const response = await fetch(`/api/admin/${userId}`, {
+        method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
           "x-user": JSON.stringify(user) || "{}",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(editFormData),
       });
 
-      if (!response.ok) throw new Error("Failed to save user");
+      if (!response.ok) throw new Error("Failed to update user");
 
-      setOpen(false);
+      setEditingUserId(null);
+      setEditFormData({});
       fetchUsers();
     } catch (err) {
       setError(err.message);
@@ -191,10 +206,10 @@ const UserTable = () => {
     }
   };
 
-  const handleCloseModal = () => {
-    setOpen(false);
-    setEditingUser(null);
-    setFormData({
+  // Show add user form
+  const handleShowAddForm = () => {
+    setShowAddForm(true);
+    setAddFormData({
       firstname: "",
       lastname: "",
       email: "",
@@ -203,18 +218,50 @@ const UserTable = () => {
     });
   };
 
+  // Hide add user form
+  const handleHideAddForm = () => {
+    setShowAddForm(false);
+    setAddFormData({
+      firstname: "",
+      lastname: "",
+      email: "",
+      role_id: null,
+      isSendEmail: false,
+    });
+  };
+
+  // Submit add user form
+  const handleAddUser = async () => {
+    try {
+      setActionLoading("add-form");
+      const response = await fetch("/api/admin/addUser", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "x-user": JSON.stringify(user) || "{}",
+        },
+        body: JSON.stringify(addFormData),
+      });
+
+      if (!response.ok) throw new Error("Failed to add user");
+
+      handleHideAddForm();
+      fetchUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const clearSearch = () => {
     setSearchInput("");
     setPage(1);
   };
 
-  const handleRoleFilterChange = (e) => {
-    setRoleFilter(e.target.value);
-    setPage(1);
-  };
-
   const clearRoleFilter = () => {
-    setRoleFilter("");
+    setRoleFilters([]);
     setPage(1);
   };
 
@@ -227,61 +274,42 @@ const UserTable = () => {
   }
 
   return (
-    <div className="mx-2 pt-24">
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center w-full">
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-          <div className="relative flex-1 min-w-0 bg-white dark:bg-gray-800 rounded-md">
-            <input
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-indigo-500"
-              placeholder="Search by ID, Name, or Email (min 2 chars)"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-            {searchInput && (
-              <span
-                onClick={clearSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white flex items-center"
-              >
-                <X size={16} />
-              </span>
-            )}
-          </div>
+    <div className="mx-2">
+      <div className="flex flex-col md:flex-row justify-between gap-3 items-stretch md:items-center w-full">
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-1/2">
+          <input
+            className="px-3 py-2 border md:w-[43%] border-gray-300 dark:border-gray-600 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-indigo-500"
+            placeholder="Search by ID, Name, or Email (min 2 chars)"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
 
           <FormControl
             size="small"
             sx={{ minWidth: 150 }}
             className="w-full sm:w-auto"
           >
-            <div className="relative">
-              <select
-                value={roleFilter}
-                onChange={handleRoleFilterChange}
-                className="w-full sm:min-w-[200px] rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-3 py-[11px] focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-indigo-500"
-              >
-                <option value="">All Roles</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <RoleMultiSelect
+              roles={roles}
+              roleFilters={roleFilters}
+              setRoleFilters={setRoleFilters}
+            />
           </FormControl>
         </div>
 
         {canManageUser && (
           <button
-            variant="primary"
-            className="w-full sm:w-auto px-3 py-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900 dark:hover:bg-indigo-800 dark:text-indigo-200 rounded-md"
-            onClick={handleAdd}
+            className="w-full sm:w-auto px-3 py-[10px] bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900 dark:hover:bg-indigo-800 dark:text-indigo-200 rounded-md flex items-center justify-center gap-2"
+            onClick={handleShowAddForm}
           >
+            <Plus size={16} />
             Add User
           </button>
         )}
       </div>
 
       <div className="flex flex-row gap-2 md:gap-0 py-3 justify-between items-start md:items-center w-full">
-        {(search || roleFilter) && (
+        {(search || roleFilters.length > 0) && (
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
             {search && (
               <Typography
@@ -306,32 +334,44 @@ const UserTable = () => {
                 />
               </Typography>
             )}
-            {roleFilter && (
-              <Typography
-                variant="body2"
-                sx={{
-                  px: 2,
-                  py: 0.5,
-                  borderRadius: 2,
-                  backgroundColor: "secondary.main",
-                  color: "white",
-                  fontSize: "0.8rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                }}
-              >
-                Role: {roles.find((r) => r.id === parseInt(roleFilter))?.name}
-                <X
-                  size={14}
-                  style={{ cursor: "pointer" }}
-                  onClick={clearRoleFilter}
-                />
-              </Typography>
+            {roleFilters.length > 0 && (
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                {roleFilters.map((roleId) => {
+                  const role = roles.find((r) => r.id === roleId);
+                  return (
+                    <Typography
+                      key={roleId}
+                      variant="body2"
+                      sx={{
+                        px: 2,
+                        py: 0.5,
+                        borderRadius: 2,
+                        backgroundColor: "secondary.main",
+                        color: "white",
+                        fontSize: "0.8rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.5,
+                      }}
+                    >
+                      Role: {role?.name}
+                      <X
+                        size={14}
+                        style={{ cursor: "pointer" }}
+                        onClick={() =>
+                          setRoleFilters(
+                            roleFilters.filter((id) => id !== roleId)
+                          )
+                        }
+                      />
+                    </Typography>
+                  );
+                })}
+              </Box>
             )}
           </Box>
         )}
-        {(search || roleFilter) && (
+        {(search || roleFilters.length > 0) && (
           <Button
             variant="primary"
             onClick={() => {
@@ -344,6 +384,145 @@ const UserTable = () => {
           </Button>
         )}
       </div>
+
+      {showAddForm && canManageUser && (
+        <Card sx={{ mb: 3, borderRadius: 3, boxShadow: 4 }}>
+          <CardContent>
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                mb: 1,
+              }}
+            >
+              <Typography variant="h6" sx={{ fontWeight: "bold" }}>
+                Add New User
+              </Typography>
+              <Button variant="secondary" onClick={handleHideAddForm}>
+                <X size={16} />
+              </Button>
+            </Box>
+
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr 1fr" },
+                gap: 3,
+              }}
+            >
+              <TextField
+                label="First Name"
+                value={addFormData.firstname}
+                onChange={(e) =>
+                  setAddFormData({ ...addFormData, firstname: e.target.value })
+                }
+                fullWidth
+                required
+                variant="standard"
+              />
+
+              <TextField
+                label="Last Name"
+                value={addFormData.lastname}
+                onChange={(e) =>
+                  setAddFormData({ ...addFormData, lastname: e.target.value })
+                }
+                fullWidth
+                required
+                variant="standard"
+              />
+
+              <TextField
+                label="Email"
+                type="email"
+                value={addFormData.email}
+                onChange={(e) =>
+                  setAddFormData({ ...addFormData, email: e.target.value })
+                }
+                fullWidth
+                required
+                variant="standard"
+              />
+
+              {canManageRole && (
+                <FormControl fullWidth required>
+                  <InputLabel>Role</InputLabel>
+                  <Select
+                    value={addFormData.role_id || ""}
+                    onChange={(e) =>
+                      setAddFormData({
+                        ...addFormData,
+                        role_id: e.target.value,
+                      })
+                    }
+                    label="Role"
+                    variant="standard"
+                  >
+                    {roles.map((role) => (
+                      <MenuItem key={role.id} value={role.id}>
+                        {role.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+            </Box>
+
+            <FormControl sx={{ mt: 2 }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={addFormData.isSendEmail}
+                  onChange={(e) =>
+                    setAddFormData({
+                      ...addFormData,
+                      isSendEmail: e.target.checked,
+                    })
+                  }
+                />
+                Send invite email
+              </label>
+            </FormControl>
+
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2,
+                mt: 3,
+                justifyContent: "flex-end",
+              }}
+            >
+              <Button variant="secondary" onClick={handleHideAddForm}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleAddUser}
+                disabled={
+                  actionLoading === "add-form" ||
+                  !addFormData.firstname ||
+                  !addFormData.lastname ||
+                  !addFormData.email
+                }
+              >
+                {actionLoading === "add-form" ? (
+                  <CircularProgress size={20} color="inherit" />
+                ) : (
+                  "Add User"
+                )}
+              </Button>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
       <TableContainer
         component={Paper}
@@ -371,7 +550,13 @@ const UserTable = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                  <CircularProgress size={24} />
+                </TableCell>
+              </TableRow>
+            ) : users.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
@@ -395,42 +580,141 @@ const UserTable = () => {
                   }}
                 >
                   <TableCell>{u.id}</TableCell>
+
+                  {/* User Name - Inline editing */}
                   <TableCell>
-                    <Box display="flex" alignItems="center" gap={2}>
-                      <Avatar src={u.profile_pic || ""}>
-                        {!u.profile_pic && u.firstname?.charAt(0).toUpperCase()}
-                      </Avatar>
-                      <span>
-                        {u.firstname} {u.lastname}
-                      </span>
-                    </Box>
+                    {editingUserId === u.id && canManageUser ? (
+                      <Box display="flex" flexDirection="row" gap={1}>
+                        <TextField
+                          size="small"
+                          value={editFormData.firstname || ""}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              firstname: e.target.value,
+                            })
+                          }
+                          placeholder="First Name"
+                          variant="outlined"
+                          sx={{ minWidth: 50 }}
+                        />
+                        <TextField
+                          size="small"
+                          value={editFormData.lastname || ""}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              lastname: e.target.value,
+                            })
+                          }
+                          placeholder="Last Name"
+                          variant="outlined"
+                          sx={{ minWidth: 50 }}
+                        />
+                      </Box>
+                    ) : (
+                      <Box display="flex" alignItems="center" gap={2}>
+                        <Avatar src={u.profile_pic || ""}>
+                          {!u.profile_pic &&
+                            u.firstname?.charAt(0).toUpperCase()}
+                        </Avatar>
+                        <span>
+                          {u.firstname} {u.lastname}
+                        </span>
+                      </Box>
+                    )}
                   </TableCell>
-                  <TableCell>{u.email}</TableCell>
+
+                  {/* Email - Inline editing */}
                   <TableCell>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      {u.role_name}
-                    </Box>
+                    {editingUserId === u.id && canManageUser ? (
+                      <TextField
+                        size="small"
+                        value={editFormData.email || ""}
+                        onChange={(e) =>
+                          setEditFormData({
+                            ...editFormData,
+                            email: e.target.value,
+                          })
+                        }
+                        placeholder="Email"
+                        variant="outlined"
+                        sx={{ minWidth: 200 }}
+                      />
+                    ) : (
+                      u.email
+                    )}
                   </TableCell>
+
+                  {/* Role - Inline editing */}
+                  <TableCell>
+                    {editingUserId === u.id && canManageRole ? (
+                      <FormControl size="small" sx={{ minWidth: 120 }}>
+                        <Select
+                          value={editFormData.role_id || ""}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              role_id: e.target.value,
+                            })
+                          }
+                        >
+                          {roles.map((role) => (
+                            <MenuItem key={role.id} value={role.id}>
+                              {role.name}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    ) : (
+                      <Box display="flex" alignItems="center" gap={1}>
+                        {u.role_name}
+                      </Box>
+                    )}
+                  </TableCell>
+
+                  {/* Actions */}
                   <TableCell>
                     <div className="flex flex-row gap-2">
-                      {u.id !== user.id ? (
+                      {u.id !== user?.id ? (
                         <>
-                          <Button
-                            variant="primary"
-                            onClick={() => handleEdit(u)}
-                            disabled={actionLoading === u.id}
-                          >
-                            {actionLoading === u.id ? (
-                              <CircularProgress size={20} />
-                            ) : (
-                              "Edit"
-                            )}
-                          </Button>
-                          {canManageUser && (
+                          {editingUserId === u.id ? (
+                            <>
+                              <Button
+                                variant="primary"
+                                onClick={() => handleSaveEdit(u.id)}
+                                disabled={actionLoading === `edit-${u.id}`}
+                              >
+                                {actionLoading === `edit-${u.id}` ? (
+                                  <CircularProgress size={20} />
+                                ) : (
+                                  <Check size={16} />
+                                )}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                onClick={handleCancelEdit}
+                                disabled={actionLoading === `edit-${u.id}`}
+                              >
+                                <X size={16} />
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              variant="primary"
+                              onClick={() => handleStartEdit(u)}
+                              disabled={editingUserId !== null}
+                            >
+                              <Edit size={16} />
+                            </Button>
+                          )}
+                          {canManageUser && editingUserId !== u.id && (
                             <Button
                               variant="danger"
                               onClick={() => handleDelete(u.id)}
-                              disabled={actionLoading === u.id}
+                              disabled={
+                                actionLoading === u.id || editingUserId !== null
+                              }
                             >
                               {actionLoading === u.id ? (
                                 <CircularProgress size={20} />
@@ -452,166 +736,33 @@ const UserTable = () => {
         </Table>
       </TableContainer>
 
-      {/* Pagination - Only show if there are users or filters applied */}
-      {(users.length > 0 || search || roleFilter) && (
+      {/* Pagination */}
+      {(users.length > 0 || search || roleFilters.length > 0) && (
         <div className="flex justify-between items-center mt-4">
           <Pagination setPage={setPage} page={page} totalPages={totalPages} />
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="users-per-page"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Users per page
+            </label>
+
+            <select
+              id="users-per-page"
+              value={limit}
+              onChange={(e) => handleLimitChange(Number(e.target.value))}
+              className="px-3 py-[10px] border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 dark:text-white rounded-md focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-indigo-500"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={15}>15</option>
+              <option value={20}>20</option>
+              <option value={25}>25</option>
+            </select>
+          </div>
         </div>
       )}
-
-      {/* Modal */}
-      <Dialog
-        open={open}
-        onClose={handleCloseModal}
-        fullWidth
-        maxWidth="sm"
-        PaperProps={{
-          sx: {
-            borderRadius: 3,
-            overflow: "hidden",
-          },
-        }}
-      >
-        <DialogTitle
-          variant="subtitle1"
-          fontWeight="bold"
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            px: 3,
-            py: 1,
-            backgroundColor: "#f5f5f5",
-            color: "black",
-            fontWeight: "bold",
-            fontSize: "1.25rem",
-          }}
-        >
-          {editingUser ? "Edit User" : "Add User"}
-          <Box
-            component="span"
-            onClick={handleCloseModal}
-            sx={{
-              cursor: "pointer",
-              fontSize: 20,
-              fontWeight: "bold",
-              lineHeight: 1,
-              color: "black",
-            }}
-          >
-            ×
-          </Box>
-        </DialogTitle>
-
-        <DialogContent
-          className="!pt-6"
-          sx={{ display: "flex", flexDirection: "column", gap: 3 }}
-        >
-          {canManageUser && (
-            <>
-              <TextField
-                label="First Name"
-                value={formData.firstname}
-                onChange={(e) =>
-                  setFormData({ ...formData, firstname: e.target.value })
-                }
-                fullWidth
-                required
-                variant="outlined"
-              />
-              <TextField
-                label="Last Name"
-                value={formData.lastname}
-                onChange={(e) =>
-                  setFormData({ ...formData, lastname: e.target.value })
-                }
-                fullWidth
-                required
-                variant="outlined"
-              />
-              <TextField
-                label="Email"
-                type="email"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                fullWidth
-                required
-                variant="outlined"
-              />
-            </>
-          )}
-
-          {canManageRole && (
-            <FormControl fullWidth required>
-              <InputLabel>Role</InputLabel>
-              <Select
-                value={formData.role_id}
-                onChange={(e) =>
-                  setFormData({ ...formData, role_id: e.target.value })
-                }
-                label="Role"
-              >
-                {roles.map((role, i) => (
-                  <MenuItem key={i} value={role.id}>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      {role.name}
-                    </Box>
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          {!editingUser && (
-            <FormControl>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={formData.isSendEmail}
-                  onChange={(e) =>
-                    setFormData({ ...formData, isSendEmail: e.target.checked })
-                  }
-                />
-                Send invite email
-              </label>
-            </FormControl>
-          )}
-        </DialogContent>
-
-        <DialogActions sx={{ px: 3, py: 2, backgroundColor: "grey.50" }}>
-          <Button variant="primary" color="inherit" onClick={handleCloseModal}>
-            Cancel
-          </Button>
-          <Button
-            variant="warning"
-            color="primary"
-            onClick={handleSubmit}
-            disabled={
-              actionLoading === "form" ||
-              !formData.firstname ||
-              !formData.lastname ||
-              !formData.email
-            }
-          >
-            {actionLoading === "form" ? (
-              <CircularProgress size={20} color="inherit" />
-            ) : editingUser ? (
-              "Update"
-            ) : (
-              "Add"
-            )}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </div>
   );
 };
